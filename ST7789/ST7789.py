@@ -6,8 +6,12 @@ import numpy as np
 from PIL import Image
 from PIL import ImageDraw
 
-import Adafruit_GPIO as GPIO
-import Adafruit_GPIO.SPI as SPI
+import lgpio
+import spidev
+
+# Constants for DC pin state, using integers directly with lgpio
+Command = 0
+Data = 1
 
 SPI_CLOCK_HZ = 40000000 # 40 MHz
 
@@ -147,7 +151,7 @@ class ST7789(object):
         self._rst = rst
         self._dc = dc
         self._led = led
-        self._gpio = gpio
+        #self._gpio = gpio
         self.width = width
         self.height = height
         self.rotation = rotation
@@ -155,16 +159,37 @@ class ST7789(object):
         self.offset_left = offset_left
         self.offset_top = offset_top
 
-        if self._gpio is None:
-            self._gpio = GPIO.get_platform_gpio()
-        # Set DC as output.
-        self._gpio.setup(dc, GPIO.OUT)
-        # Setup reset as output (if provided).
-        if rst is not None:
-            self._gpio.setup(rst, GPIO.OUT)
-        # Turn on the backlight LED
-        self._gpio.setup(led, GPIO.OUT)
-        self._gpio.setup(led, GPIO.HIGH)
+        self._gpio_handle = -1 # Initialize GPIO chip handle
+
+        try:
+            # Open GPIO chip 0
+            self._gpio_handle = lgpio.gpiochiop_open(0)
+            if self._gpio_handle < 0:
+                raise RuntimeError(f"lgpio: Failed to open gpiochip 0 (Error code: {self._gpio_handle})")
+            
+            # CLaim control lines as output
+            ret = lgpio.gpio_claim_output(self._gpio_handle, self._rst, lFlags=0)
+            if ret < 0:
+                raise RuntimeError(f"lgpio: Failed to claim RST pin {self._rst}")
+            
+            ret = lgpio.gpio_claim_output(self._gpio_handle, self._dc, lFlags=0)
+            if ret < 0:
+                raise RuntimeError(f"lgpio: Failed to claim DC pin {self._dc}")
+            
+            if self._led is not None:
+                ret = lgpio.gpio_claim_output(self._gpio_handle, self._led, lFlags=0)
+                if ret < 0:
+                    raise RuntimeError(f"lgpio: Failed to claim LED pin {self._led}")
+
+            # Set backlight to high by default
+            lgpio.gpio_write(self._gpio_handle, self._led, 1)
+
+        except Exception as e:
+            # Cleanup if initialization fails partially
+            self.cleanup()
+            raise e # Re-raise the exception
+        
+        
         # Set SPI to mode 0, MSB first.
         spi.set_mode(mode)
         spi.set_bit_order(SPI.MSBFIRST)
