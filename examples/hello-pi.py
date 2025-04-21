@@ -1,28 +1,15 @@
 import ST7789
 import time
 from PIL import Image, ImageDraw, ImageFont
-import Adafruit_GPIO.GPIO as GPIO
-import Adafruit_GPIO.Platform as Platform
-import Adafruit_GPIO.SPI as SPI
 import random
 
-# Force platform detection
-Platform.platform_detect = lambda: Platform.RASPBERRY_PI
-
-# Configuration for CS and DC pins using BCM numbering
-cs_pin = 8
+# Configuration for GPIO pins using BCM numbering
 dc_pin = 24
 reset_pin = 25
 backlight_pin = 20
 
-SPI_PORT = 0
-SPI_DEVICE = 0
-SPI_MODE = 0b11
-SPI_SPEED_HZ = 40000000
-
 # Initialize the display
 disp = ST7789.ST7789(
-    spi=SPI.SpiDev(SPI_PORT, SPI_DEVICE, max_speed_hz=SPI_SPEED_HZ),
     dc=dc_pin,
     led=backlight_pin,
     rst=reset_pin,
@@ -37,7 +24,7 @@ disp = ST7789.ST7789(
 disp.begin()
 
 # After rotation, width and height are swapped for our image
-if disp.rotation == 90 or disp.rotation == 270:
+if disp._rotation == 90 or disp._rotation == 270:
     img_width = 320
     img_height = 170
 else:
@@ -82,3 +69,5 @@ print("Display test complete, turning off display in 5 seconds.")
 time.sleep(5)
 print("Display off.")
 disp.shutdown()
+disp.set_backlight(False)
+disp.cleanup()

@@ -25,7 +25,5 @@ setup(name              = 'Python_ST7789',
       license           = 'Solinnovay Laboratory',
       classifiers       = classifiers,
       url               = 'https://github.com/rb-dahlb/Python_ST7789',
-      #dependency_links  = ['https://github.com/adafruit/Adafruit_Python_GPIO/tarball/master#egg=Adafruit-GPIO-0.6.5'],
-      #install_requires  = ['Adafruit-GPIO>=0.6.5'],
-      install_requires  = ['lgpio pillow numpy spidev'],
+      install_requires  = ['lgpio', 'Pillow', 'numpy', 'spidev'],
       packages          = find_packages())

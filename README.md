@@ -3,6 +3,8 @@ Python library for using ST7789-based IPS LCD with Raspberry Pi.
 
 Forked from [solinnovay/Python_ST7789](solinnovay/Python_ST7789) and adapted to work with a 170x320 display, adding offset and rotation as setup parameters.
 
+Changed from using RPi.GPIO to lgpio to work better with gpiozero.
+
 ## Wiring
 |LCD Pin|Pin     |Pin name|Labelled |
 |-------|--------|--------|------|
@@ -20,20 +22,13 @@ Forked from [solinnovay/Python_ST7789](solinnovay/Python_ST7789) and adapted to 
 Complete example in the examples folder: `hello-pi.py`
 
 ```python
-# Configuration for CS and DC pins using BCM numbering
-cs_pin = 8
+# Configuration for GPIO pins using BCM numbering
 dc_pin = 24
 reset_pin = 25
 backlight_pin = 20
 
-SPI_PORT = 0
-SPI_DEVICE = 0
-SPI_MODE = 0b11
-SPI_SPEED_HZ = 40000000
-
 # Initialize the display
 disp = ST7789.ST7789(
-    spi=SPI.SpiDev(SPI_PORT, SPI_DEVICE, max_speed_hz=SPI_SPEED_HZ),
     dc=dc_pin,
     led=backlight_pin,
     rst=reset_pin,
@@ -51,11 +46,8 @@ To run the example code from within this folder:
 python -m venv .venv
 source .venv/bin/activate
 
-# Install this library and some of the dependencies (Adafruit-GPIO, adafruit-pureio and spidev)
+# Install this library and the dependencies (lgpio, Pillow, numpy and spidev)
 pip install . 
-
-# Install the rest of the dependencies needed for the example
-pip install pillow numpy RPi.GPIO
 
 # Run the example
 python examples/hello-pi.py
