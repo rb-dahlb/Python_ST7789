@@ -3,8 +3,7 @@ import numbers
 import time
 import numpy as np
 
-from PIL import Image
-from PIL import ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 import lgpio
 import spidev
@@ -13,7 +12,10 @@ import spidev
 Command = 0
 Data = 1
 
-SPI_CLOCK_HZ = 40000000 # 40 MHz
+SPI_SPEED_HZ = 40000000 # 40 MHz
+SPI_PORT = 0
+SPI_DEVICE = 0
+SPI_MODE = 0b11
 
 # Constants for interacting with display registers.
 ST7789_TFTWIDTH    = 170
@@ -140,18 +142,16 @@ def image_to_data(image):
 class ST7789(object):
     """Representation of an ST7789 IPS LCD."""
 
-    def __init__(self, spi, mode=3, rst=27, dc=25, led=24, gpio=None, width=ST7789_TFTWIDTH,
+    def __init__(self, rst=27, dc=25, led=24, width=ST7789_TFTWIDTH,
         height=ST7789_TFTHEIGHT, rotation=0, offset_left=0, offset_top=0):
         """Create an instance of the display using SPI communication.  Must
         provide the GPIO pin number for the D/C pin and the SPI driver.  Can
         optionally provide the GPIO pin number for the reset pin as the rst
         parameter.
         """
-        self._spi = spi
         self._rst = rst
         self._dc = dc
         self._led = led
-        #self._gpio = gpio
         self.width = width
         self.height = height
         self.rotation = rotation
@@ -163,7 +163,7 @@ class ST7789(object):
 
         try:
             # Open GPIO chip 0
-            self._gpio_handle = lgpio.gpiochiop_open(0)
+            self._gpio_handle = lgpio.gpiochip_open(0)
             if self._gpio_handle < 0:
                 raise RuntimeError(f"lgpio: Failed to open gpiochip 0 (Error code: {self._gpio_handle})")
             
@@ -190,28 +190,51 @@ class ST7789(object):
             raise e # Re-raise the exception
         
         
-        # Set SPI to mode 0, MSB first.
-        spi.set_mode(mode)
-        spi.set_bit_order(SPI.MSBFIRST)
-        spi.set_clock_hz(SPI_CLOCK_HZ)
+        # Setup for SPI on Raspberry Pi
+        self._spi = spidev.SpiDev()
+        self._spi.open(SPI_PORT, SPI_DEVICE)
+        self._spi.max_speed_hz=SPI_SPEED_HZ
+        self._spi.mode=SPI_MODE
+        # self._spi.set_bit_order(SPI.MSBFIRST)
+
+        #Initialize display
+        self.reset()
+        self._init()
+
         # Create an image buffer.
         self.buffer = Image.new('RGB', (width, height))
+
+    def cleanup(self):
+        """Clean up GPIO resources."""
+        if self._gpio_handle >= 0:
+            # Closing the chip handle automatically releases claimed lines
+            try:
+                lgpio.gpiochip_close(self._gpio_handle)
+            except Exception as e:
+                print(f"Warning: Error closing lgpio handle: {self._gpio_handle}")
+            self._gpio_handle = -1 # Mark as closed
+
+            # Close spdidev object if it is open
+            if hasattr(self, 'spi') and self._spi._spi.is_open:
+                self._spi.close()
 
     def send(self, data, is_data=True, chunk_size=4096):
         """Write a byte or array of bytes to the display. Is_data parameter
         controls if byte should be interpreted as display data (True) or command
         data (False).  Chunk_size is an optional size of bytes to write in a
         single SPI transaction, with a default of 4096.
-        """
-        # Set DC low for command, high for data.
-        self._gpio.output(self._dc, is_data)
+        """        
+        if self._gpio_handle < 0: return # Guard against use after cleanup
+        # Set DC low for command, high for data.                  
+        lgpio.gpio_write(self._gpio_handle, self._dc, Data if is_data else Command)
+        
         # Convert scalar argument to list so either can be passed as parameter.
         if isinstance(data, numbers.Number):
             data = [data & 0xFF]
         # Write data a chunk at a time.
         for start in range(0, len(data), chunk_size):
             end = min(start+chunk_size, len(data))
-            self._spi.write(data[start:end])
+            self._spi.writebytes(data[start:end])
 
     def command(self, data):
         """Write a byte or array of bytes to the display as command data."""
@@ -223,13 +246,19 @@ class ST7789(object):
 
     def reset(self):
         """Reset the display, if reset pin is connected."""
+        if self._gpio_handle < 0: return # Guard against use after cleanup
         if self._rst is not None:
-            self._gpio.set_high(self._rst)
+            lgpio.gpio_write(self._gpio_handle, self._rst, 1)
             time.sleep(0.100)
-            self._gpio.set_low(self._rst)
+            lgpio.gpio_write(self._gpio_handle, self._rst, 0)
             time.sleep(0.100)
-            self._gpio.set_high(self._rst)
+            lgpio.gpio_write(self._gpio_handle, self._rst, 1)
             time.sleep(0.100)
+
+    def set_backlight(self, value):
+        """Set the backlight on/off."""
+        if self._led is not None and self._gpio_handle >= 0:
+            lgpio.gpio_write(self._gpio_handle, self._led, 1 if value else 0)
 
     def shutdown(self):
         """Send shutdown command to the display."""
@@ -432,4 +461,62 @@ class ST7789(object):
         """Return a PIL ImageDraw instance for 2D drawing on the image buffer."""
         return ImageDraw.Draw(self.buffer)
 
+# Example Usage
+if __name__ == '__main__':
+    # Physical BCM pin numbers
+    cs_pin = 8
+    dc_pin = 24
+    reset_pin = 25
+    backlight_pin = 20
 
+    # Create display instance
+    disp = ST7789(dc=dc_pin, rst=reset_pin, led=backlight_pin, width=170, height=320, rotation=90, offset_left=0, offset_top=35)
+
+# Initialize display
+disp.begin()
+
+# After rotation, width and height are swapped for our image
+if disp.rotation == 90 or disp.rotation == 270:
+    img_width = 320
+    img_height = 170
+else:
+    img_width = 170
+    img_height = 320
+
+# Create image with the appropriate dimensions
+image = Image.new("RGB", (img_width, img_height), (100, 100, 0))
+draw = ImageDraw.Draw(image)
+
+# Draw a rectangle
+draw.rectangle((20, 20, img_width-20, img_height-20), outline=(255, 255, 255), fill=(0, 100, 200))
+
+# Draw some text
+text = "Hello, Pi!"
+try:
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
+except IOError:
+    font = ImageFont.load_default()
+
+# Handle text rendering
+try:
+    bbox = font.getbbox(text)
+    font_width = bbox[2] - bbox[0]
+    font_height = bbox[3] - bbox[1]
+except AttributeError:
+    try:
+        font_width, font_height = font.getsize(text)
+    except:
+        font_width, font_height = 100, 20
+
+draw.text(
+    (img_width // 2 - font_width // 2, img_height // 2 - font_height // 2),
+    text,
+    font=font,
+    fill=(255, 255, 255)
+)
+
+# Display the image
+disp.display(image)
+print("Displaying image. Press Ctrl+C to exit.")
+while True:
+    time.sleep(1)
